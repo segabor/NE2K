@@ -1,3 +1,4 @@
+"Title" = "NE2K";
 "Family" = "Network";
 "Location" = "";
 "Bus Type" = "PCI";
@@ -10,3 +11,5 @@
 "Share IRQ Levels" = "YES";
 "Class Names" = "NE2K";
 "Server Name" = "NE2K";
+"Version" = "0.91b";
+"Driver Version" = "NE2K 0.91 beta";

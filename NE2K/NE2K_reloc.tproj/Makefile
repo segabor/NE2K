@@ -7,25 +7,27 @@
 # and Makefile.postamble (both optional), and Makefile will include them.
 #
 
-NAME = NE2K
+NAME = NE2K_reloc
 
 PROJECTVERSION = 1.1
 LANGUAGE = English
 
-GLOBAL_RESOURCES = Default.table Localizable.strings
+CLASSES = NE2K.m
 
-TOOLS = NE2K_reloc.tproj
+HFILES = ioPortsExt.h NE2K.h ne2k_funcs.h ne2k_reg.h
 
-OTHERSRCS = Makefile.preamble Makefile Makefile.postamble
+OTHERSRCS = Makefile.preamble Makefile Makefile.postamble\
+            Makefile.driver_preamble Load_Commands.sect
 
 MAKEFILEDIR = /NextDeveloper/Makefiles/app
-MAKEFILE = bundle.make
+MAKEFILE = tool.make
 SOURCEMODE = 444
 
-BUNDLE_EXTENSION = config
+LIBS = 
+DEBUG_LIBS = $(LIBS)
+PROF_LIBS = $(LIBS)
 
 
-PB_CFLAGS = -DKERNEL -O2 -s
 
 
 -include Makefile.preamble

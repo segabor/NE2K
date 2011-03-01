@@ -1,0 +1,12 @@
+FILESTABLE = {
+    OTHER_SOURCES = (Makefile.preamble, Makefile, Makefile.postamble, Makefile.driver_preamble, Load_Commands.sect);
+    H_FILES = (ioPortsExt.h, NE2K.h, ne2k_funcs.h, ne2k_reg.h);
+    CLASSES = (NE2K.m);
+};
+LANGUAGE = English;
+LOCALIZABLE_FILES = {
+};
+PROJECTVERSION = 1.1;
+PROJECTTYPE = Tool;
+PROJECTNAME = NE2K_reloc;
+GENERATEMAIN = YES;
