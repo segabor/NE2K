@@ -1,5 +1,6 @@
 
 #import <driverkit/i386/ioPorts.h>
+#import "ioPortsExt.h"
 
 #import "ne2k_reg.h"
 
@@ -58,6 +59,44 @@ static __inline__ long NICGetLongData(IOEISAPortAddress base) {
 static __inline__ void NICSetLongData(IOEISAPortAddress base, long value) {
     outl(base + NE_DATAPORT, value);
 }
+
+
+
+
+static __inline__ void NICGetCharDatas(IOEISAPortAddress base, void *addr, int size) {
+    insb(base + NE_DATAPORT, addr, size);
+}
+
+
+static __inline__ void NICSetCharDatas(IOEISAPortAddress base, void *addr, int size) {
+    outsb(base + NE_DATAPORT, addr, size);
+}
+
+
+static __inline__ void NICGetShortDatas(IOEISAPortAddress base, void *addr, int size) {
+    insw(base + NE_DATAPORT, addr, size);
+}
+
+
+static __inline__ void NICSetShortDatas(IOEISAPortAddress base, void *addr, int size) {
+    outsw(base + NE_DATAPORT, addr, size);
+}
+
+
+
+static __inline__ void NICGetLongDatas(IOEISAPortAddress base, void *addr, int size) {
+    insl(base + NE_DATAPORT, addr, size);
+}
+
+
+static __inline__ void NICSetLongDatas(IOEISAPortAddress base, void *addr, int size) {
+    outsl(base + NE_DATAPORT, addr, size);
+}
+
+
+
+
+
 
 
 

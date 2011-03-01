@@ -15,10 +15,11 @@ LANGUAGE = English
 
 CLASSES = NE2K.m
 
-HFILES = NE2K.h ne2k_funcs.h ne2k_reg.h
+HFILES = ioPortsExt.h NE2K.h ne2k_funcs.h ne2k_reg.h
 
 OTHERSRCS = Makefile.preamble Makefile Makefile.postamble m.template\
             h.template Load_Commands.sect
+
 
 MAKEFILEDIR = $(MAKEFILEPATH)/pb_makefiles
 CODE_GEN_STYLE = DYNAMIC

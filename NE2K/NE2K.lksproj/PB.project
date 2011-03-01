@@ -2,7 +2,8 @@
     DYNAMIC_CODE_GEN = NO; 
     FILESTABLE = {
         CLASSES = (NE2K.m); 
-        H_FILES = (NE2K.h, ne2k_funcs.h, ne2k_reg.h); 
+        H_FILES = (ioPortsExt.h, NE2K.h, ne2k_funcs.h, ne2k_reg.h); 
+        OTHER_LINKED = (); 
         OTHER_SOURCES = (
             Makefile.preamble, 
             Makefile, 
@@ -11,6 +12,7 @@
             h.template, 
             Load_Commands.sect
         ); 
+        SUBPROJECTS = (); 
     }; 
     LANGUAGE = English; 
     LOCALIZABLE_FILES = {}; 

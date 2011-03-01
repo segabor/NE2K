@@ -10,6 +10,8 @@
 #import <driverkit/i386/IOPCIDeviceDescription.h>
 #import <driverkit/i386/IOPCIDirectDevice.h>
 
+
+
 #import "ne2k_reg.h"
 #import "ne2k_funcs.h"
 #import "NE2K.h"
@@ -20,8 +22,12 @@
 #import <kernserv/prototypes.h>
 
 
+#define NE_TXTIMEOUT	3000
 
+
+//8k + 8k if 16 bit
 #define NESM_START_PAGE	0x40
+//16k .. end
 #define NESM_STOP_PAGE	0x80
 
 
@@ -30,7 +36,11 @@
 #define	TX_2X_PAGES	12
 #define	TX_1X_PAGES	6
 #define	ETHER_ADDR_LEN	6
-#define	TX_PAGES	TX_2X_PAGES	//PING-PONG
+#ifdef PINGPONG
+    #define	TX_PAGES	TX_2X_PAGES
+#else
+    #define	TX_PAGES	TX_1X_PAGES
+#endif
 
 struct e8390_pkt_hdr {
     unsigned char	status;	/* status */
@@ -76,15 +86,11 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
     IOPCIConfigSpace		config;
     int				i;
-    RCNV			_r;
     unsigned char		*_ptr;
     ns_time_t			start_time, current;
     unsigned char		SA_prom[32];	/* misc */
     BOOL			SA_doubled;
 
-
-    int				_irq, _vendor;
-    IOEISAPortAddress		_base;
 
 
 
@@ -103,42 +109,42 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
     if (config.VendorID == 0x10ec && config.DeviceID == 0x8029) {
         IOLog("Vendor: RealTek RTL-8029\n");
-        _vendor = 1;
+        vendor = 1;
     } else if (config.VendorID == 0x1050 && config.DeviceID == 0x0940) {
         IOLog("Vendor: Winbond 89C940\n");
-        _vendor = 2;
+	vendor = 2;
     } else if (config.VendorID == 0x11f6 && config.DeviceID == 0x1401) {
         IOLog("Vendor: Compex RL2000\n");
-        _vendor = 3;
+	vendor = 3;
     } else if (config.VendorID == 0x8e2e && config.DeviceID == 0x3000) {
         IOLog("Vendor: KTI ET32P2\n");
-        _vendor = 4;
+	vendor = 4;
     } else if (config.VendorID == 0x4a14 && config.DeviceID == 0x5000) {
         IOLog("Vendor: NetVin NV5000SC\n");
-        _vendor = 5;
+	vendor = 5;
     } else if (config.VendorID == 0x1106 && config.DeviceID == 0x0926) {
         IOLog("Vendor: Via 82C926\n");
-        _vendor = 6;
+	vendor = 6;
     } else {
         IOLog("Vendor: unknown (V:0x%x; D:0x%x)...\n", (unsigned int)config.VendorID, (unsigned int)config.DeviceID);
-        _vendor = 0;
+	vendor = 0;
     }
 
-    _irq = (int)config.InterruptLine;
-    _base = ((IOEISAPortAddress)config.BaseAddress[0]) & 0xfffe;
-    IOLog("BASE: 0x%x; IRQ: %d\n", _base, _irq);
+    irq = (int)config.InterruptLine;
+    base = ((IOEISAPortAddress)config.BaseAddress[0]) & 0xfffe;
+    port.start = base;
+    port.size = 0x20;
+    
+    
+    IOLog("BASE: 0x%x; IRQ: %d\n", base, irq);
 
 
-    [deviceDescription setInterruptList: &_irq num:1];
-
+    [deviceDescription setInterruptList: &irq	num:1];
+    [deviceDescription setPortRangeList: &port	num: 1];
 
     
     if ([super initFromDeviceDescription:devDesc] == nil)
         return nil;
-
-    irq		= _irq;
-    base	= _base;
-    vendor	= _vendor;
 
     
     debug = 1;	//preset ...
@@ -175,8 +181,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     }
 
     NICSetCR(base, 0x21);	//no dma, stop, page0
-    
-    NICSetDCR(base, 0x9);	//word16, lb - normal mode
+    NICSetDCR(base, 0x49);	//word16, lb - normal mode
 
     NICSetRBCR(base, 0);	//Remote byte count reg
 
@@ -211,7 +216,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
 
 
-    NICSetDCR(base, 0x9);	//lb - normal mode, word16
+    NICSetDCR(base, 0x49);	//lb - normal mode, word16
 
 
     /*
@@ -234,8 +239,6 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     for (i=0; i<6; i++) {
         _ptr[i] = SA_prom[i];
     }
-    //IOLog("Ethernet Address: 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n", _ptr[0], _ptr[1], _ptr[2], _ptr[3], _ptr[4], _ptr[5]);
-
 
     /* set multicast list */
     multiMode = NO;
@@ -251,24 +254,6 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
     
     word16 = YES;	//16bit mode
-    
-    /*
-     * NS8390 INIT - National Semiconductor Recommended Init
-     */
-    if (debug) {
-        IOLog("NS8390 Init ...\n");
-    }
-
-    [self _NS8390Init: YES];
-
-    /*
-     * Broadcasts should be enabled
-     */
-    //rconsave.broad = 1;
-
-
-
-
 
     txqueue	= 0;
     
@@ -313,9 +298,10 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     [self disableAllInterrupts];
 
 
-    [self _reset8390];
-    [self _NS8390Init: enable];
+    [self _NS8390Reset];
+    [self _NS8390Init: enable];        
 
+    
     irqlock	= NO;
     //getStationAddress(&myAddress, base);	???
 
@@ -340,18 +326,17 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     netbuf_t	pkt = NULL;
 
     if (debug) {
-        IOLog("NE2K: Transmit timeout...\n");
+        IOLog("TX/TO\n");
     }
 
-    txing = NO;
+    transmitActive = NO;
 
     if ([self isRunning]) {
         if ([self resetAndEnable:YES]) {
-/*
             if (pkt = [transmitQueue dequeue])
                 [self transmit:pkt];
-*/
         }
+
     }
     /*
      * Value of [self isRunning] may have been modified by
@@ -385,35 +370,32 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
     NICSetCR(base, 0x20);	//no dma, page0
 
-    while ( (ni = NICGetISR(base)) && ++nr_serviced < MAX_SERVICE) {
-        _r.data	= ni;
 
+    while ( (ni = NICGetISR(base)) && ++nr_serviced < MAX_SERVICE) {
+        //Ack. all incoming interrupts ...
+        //NICSetISR(base, ni);
+        
         if ([self isRunning] == NO) {
             IOLog("NE2K: Interrupts from stopped card!\n");
             break;
         }
 
         //Receive buffer exhausted
-        if (_r.isr.ovw) {
-            IOLog("(1) ");
+        if (ni & 0x10 /* _r.isr.ovw */) {
             //ei_rx_overrun
             [self _receiveOverrun];
-        } else if (_r.isr.prx || _r.isr.rxe) {
-            IOLog("(2) ");
+        } else if (ni & 0x5 /* _r.isr.prx || _r.isr.rxe */) {
             [self _receiveInterruptOccurred];
         }
 	
-        if (_r.isr.ptx) {
-            IOLog("(3) ");
+        if (ni & 0x2 /* _r.isr.ptx */) {
             [self _transmitInterruptOccurred];
-        } else if (_r.isr.txe) {
-            IOLog("(1) ");
+        } else if (ni & 0x8 /* _r.isr.txe */) {
             [self _transmitError];
         }
 
         //counters set
-        if (_r.isr.cnt) {
-            IOLog("(5) ");
+        if (ni & 0x20 /*_r.isr.cnt */) {
 /*
             rx_frame_errors	+= NICGetCNTR0(base);
             rx_crc_errors	+= NICGetCNTR1(base);
@@ -425,18 +407,19 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
         }
 
         /* ignore any RDC interrupts that make back to here */
-        if (_r.isr.rdc) {
-            IOLog("(6) ");
+        if (ni & 0x40 /* _r.isr.rdc */) {
             NICSetISR(base, 0x40);	//rdc = 0x40
         }
 
         NICSetCR(base, 0x22);		//nodma, page0, start
-        IOLog("(x) ");
     }
 
     if (ni && debug==YES) {
         IOLog("NE2K: too much work at interrupt.\n");
     }
+
+    //DriverKit gave me this advice:
+    [self enableAllInterrupts];
 }
 
 
@@ -456,7 +439,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     }
 
     if (debug) {
-        IOLog("NE2K: Transmitter error (%#2x): ", _r.data);
+        IOLog("NE2K: Transmitter error (%2x): ", _r.data);
         if (_r.tsr.abort)
             IOLog("excess-collision ");
         if (_r.tsr.nd)
@@ -489,78 +472,90 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
 -(void) _transmitInterruptOccurred
 {
-    RCNV	status;
+    RCNV		status;
+    netbuf_t		pkt;
 
     status.data = NICGetTSR(base);
 
+    if (transmitActive == YES) {
+        [self clearTimeout];
 
-    [self clearTimeout];
-    txing = NO;
 
+        NICSetISR(base, 0x02);	//Ack. transmitter, no error
 
-    NICSetISR(base, 0x02);	//Ack. transmitter, no error
+        /* ping-pong */
+        /*
+         * There are two Tx buffers, see wich one finished, and trigger
+         * the send of another one if it exists.
+         */
 
-    /* ping-pong */
-    /*
-     * There are two Tx buffers, see wich one finished, and trigger
-     * the send of another one if it exists.
-     */
+    #ifdef PINGPONG
+        txqueue--;
+        if (tx1 < 0) {
+            if (lasttx != 1 && lasttx != -1) {
+                IOLog("NE2K: bogus last_tx_buffer %d, tx1=%d.\n", lasttx, tx1);
+            }
+            tx1=0;
+            tbusy = NO;
+            if (tx2 > 0) {
+                transmitActive = YES;
+                [self _NS8390TriggerSend: tx2 startPage: tx_start_page + 6];
+                [self setRelativeTimeout:NE_TXTIMEOUT];
 
-    txqueue--;
-    if (tx1 < 0) {
-        if (lasttx != 1 && lasttx != -1) {
-            IOLog("NE2K: bogus last_tx_buffer %d, tx1=%d.\n", lasttx, tx1);
-        }
-        tx1=0;
-        tbusy = NO;
-        if (tx2 > 0) {
-            txing = YES;
-            [self _NS8390TriggerSend: tx2 startPage: tx_start_page + 6];
-            [self setRelativeTimeout:3000];
+                tx2 = -1;
+                lasttx = 2;
+            } else {
+                lasttx = 20;
+                transmitActive = NO;
+            }
+        } else if (tx2 < 0) {
+            if (lasttx != 2 && lasttx != -2) {
+                IOLog("NE2K: bogus last_tx_buffer %d, tx2=%d.\n", lasttx, tx2);
+            }
+            tx2=0;
+            tbusy = NO;
+            if (tx1 > 0) {
+                transmitActive = YES;
+                [self _NS8390TriggerSend: tx1 startPage: tx_start_page];
+                [self setRelativeTimeout:NE_TXTIMEOUT];
 
-            tx2 = -1;
-            lasttx = 2;
+                tx1 = -1;
+                lasttx = 1;
+            } else {
+                lasttx = 10;
+                transmitActive = NO;
+            }
+        } else if (pkt = [transmitQueue dequeue]) {
+            [self transmit: [transmitQueue dequeue]];
         } else {
-            lasttx = 20;
-            txing = NO;
+            IOLog("NE2K: unexpected TX-done interrupt, lasttx=%d.\n", lasttx);
         }
-    } else if (tx2 < 0) {
-        if (lasttx != 2 && lasttx != -2) {
-            IOLog("NE2K: bogus last_tx_buffer %d, tx2=%d.\n", lasttx, tx2);
-        }
-        tx2=0;
+    #else /* PINGPONG */
+
+        transmitActive = NO;
         tbusy = NO;
-        if (tx1 > 0) {
-            txing = YES;
-            [self _NS8390TriggerSend: tx1 startPage: tx_start_page];
-            [self setRelativeTimeout:3000];
-
-            tx1 = -1;
-            lasttx = 1;
-        } else {
-            lasttx = 10;
-            txing = NO;
+        
+        if (pkt = [transmitQueue dequeue]) {
+            [self transmit: pkt];
         }
-    } else if ([transmitQueue count] > 0) {
-        [self transmit: [transmitQueue dequeue]];
-    } else {
-        IOLog("NE2K: unexpected TX-done interrupt, lasttx=%d.\n", lasttx);
+
+    #endif /* PINGPONG */
+
+
+
+        /* Minimize Tx latency: update the statistics after we restart TXing. */
+
+    //    if (status.tsr.col)
+            //collisions ++
+        if (status.tsr.ptx)
+            [network incrementOutputPackets];
+        else {
+            [network incrementOutputErrors];
+            //Here are a lot of errors go....
+        }
+     
+        
     }
-
-
-
-
-    /* Minimize Tx latency: update the statistics after we restart TXing. */
-
-//    if (status.tsr.col)
-        //collisions ++
-    if (status.tsr.ptx)
-        [network incrementOutputPackets];
-    else {
-        [network incrementOutputErrors];
-        //Here are a lot of errors go....
-    }
-
 }
 
 
@@ -582,24 +577,24 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
         
         /* Get the rx page (incoming paket pointer) */
         NICSetCR(base, 0x20 | 0x40);	//page1, no dma
-
         rxing_page = NICGetCURR(base);
-
-        NICSetCR(base, 0x20);		//page0, no dma
+	NICSetCR(base, 0x20);		//page0, no dma
 
         /* Remove one frame from the ring. Boundary is always a page behind */
-        this_frame = NICGetBNRY(base);
+        this_frame = NICGetBNRY(base) + 1;
         if (this_frame >= stop_page) {
             this_frame = rx_start_page;
         }
 
+
         /* Someday we'll omit the previous, if we never get this message */
+
         if (debug && this_frame != current_page) {
             IOLog("NE2K: Mismatched readpage pointers %2x vs %2x.\n", this_frame, current_page);
         }
 
 
-        if (this_frame == rxing_page)	/* Read all the frames? */
+        if (this_frame	 == rxing_page)	/* Read all the frames? */
             break;			/* Done for now */
 
 
@@ -621,6 +616,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
             NICSetBNRY(base, current_page - 1);
 
             [network incrementInputErrors];
+            continue;
         }
 
         if (pkt_len < 60 || pkt_len > 1518) {
@@ -640,13 +636,15 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
                 [self _blockInput: pkt_len buffer: nb_map(pkt) offset: current_offset + sizeof(rx_frame)];
 
                 //Simply handle new packet ..
+/*
                 if(promMode == NO && [super isUnwantedMulticastPacket:(ether_header_t *)nb_map(pkt)]) {
                     IOLog("Unwanted packet...\n");
                     nb_free(pkt);
                 } else {
                     [network handleInputPacket:pkt extra:0];
                 } 
-
+ */
+                [network handleInputPacket:pkt extra:0];
             }
         } else {
             if (debug) {
@@ -697,15 +695,19 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 -(void) _receiveOverrun
 {
     RCNV	_r;
-    BOOL	was_txing, must_resend = 0;
-
+    unsigned char	was_txing, must_resend = 0;
+    unsigned	char _d;
+    
     must_resend = NO;
 
     /*
      * Record whether a TX was in progress and then issue the stop command.
      */
-    _r.data = NICGetCR(base);
-    was_txing = (_r.cr.txp ? YES : NO);
+
+    //_r.data = NICGetCR(base);
+    _d = NICGetCR(base);
+    was_txing = _d & 0x4;	/* cr.trans */
+
     NICSetCR(base, 0x21);	//no dma, stop, page0;
 
     if (debug) {
@@ -720,6 +722,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
      * it "is not a reliable indicator and subsequently should be ignored."
      * we wait at least 10ms.
      */
+    IOSleep(10);	/* 10 millisecs */
 
     /*
      * Reset RBCR[01] back to zero as per magic incatation
@@ -730,11 +733,11 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
      * See if any Tx was interrupted or not. According to NS, this
      * step is vital, and skipping will cause no end of havoc.
      */
-    if (was_txing == YES) {
-        _r.data = NICGetISR(base);
+    if (was_txing) {
+        _d = NICGetISR(base);
         /* Transmit error */
-        if (_r.isr.txe == 0) {
-            must_resend = YES;
+        if ((_d & 0xa) == 0 /* isr.txe + isr.ptx */) {
+            must_resend = 1;
         }
     }
 
@@ -746,16 +749,17 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     NICSetCR(base, 0x22);	//nodma, page0, start
 
     /*
-     * Clear thr Rx ring of all the debris, and ack the interrupt.
+     * Clear the Rx ring of all the debris, and ack the interrupt.
      */
     [self _receiveInterruptOccurred];
+
     NICSetISR(base, 0x10);	//OVW - overrun ...
 
     /*
      * Leave loopback mode, and resend any packet that got stopped.
      */
     NICSetTCR(base, 0x0);	//TxCONFIG - Normal transmit mode ...
-    if (must_resend == YES) {
+    if (must_resend) {
         NICSetCR(base, 0x26);	//no dma, trans, start, page0
     }
 
@@ -785,14 +789,14 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
             [self _setMulticastList];
             break;
         }
-    }    
+    }
 }
 
 
 -(void) removeMulticastAddress:(enet_addr_t *) address
 {
     int i;
-    
+
     if (mar_cnt == 0) {
         //list is empty!
         return;
@@ -818,27 +822,25 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
 - (BOOL)enablePromiscuousMode
 {
-    /*
     if (promMode == NO) {
         promMode = YES;
         [self _setMulticastList];
     }
 
-    return YES;*/
-    return NO;
+    return YES;
 }
 
 - (void)disablePromiscuousMode
 {
-    /*
     if (promMode == YES) {
         promMode = NO;
         [self _setMulticastList];
-    }*/
+    }
 }
 
 - (BOOL)enableMulticastMode
 {
+
     if (multiMode == NO) {
         multiMode = YES;
         [self _setMulticastList];
@@ -865,26 +867,20 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     int		pkt_len;
 
     if (tbusy == YES) {
-        IOLog("NE2K: Transmit busy!.\n");
-        //[transmitQueue enqueue:pkt];
-
-        IOSleep(300);
-        return;        
+        [transmitQueue enqueue:pkt];
     } else {
-        //Is it needed?
-        //DISABLED: [self performLoopback:pkt];	 
-
-
         /* Mask interrupts from the ethercard. */
 
-        NICSetIMR(base, 0x00);
-        [self disableInterrupt: irq];
+        //Disable irq
+        //NICSetIMR(base, 0x00);
+        //[self disableInterrupt: irq];
         irqlock = YES;
 
         pkt_len = nb_size(pkt);
-        send_length = 60 < pkt_len ? pkt_len : 60;	//Linux: ETH_ZLEN = 60
+        send_length = pkt_len > 60 ? pkt_len : 60;	//Linux: ETH_ZLEN = 60
 
         /* PING_PONG */
+#ifdef PINGPONG
         if (tx1 == 0) {
             output_page	= tx_start_page;
             tx1		= send_length;
@@ -894,8 +890,8 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
         } else {
             irqlock	= NO;
             tbusy	= YES;
-            NICSetIMR(base, 0x3f);	//All irqs!
-            [self enableInterrupt: irq];
+            //NICSetIMR(base, 0x3f);	//All irqs!
+            //[self enableInterrupt: irq];
 
             //No ping-pong queue, queue packet ...
             [transmitQueue enqueue: pkt];
@@ -909,12 +905,12 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
          */
 
         [self _blockOutput: nb_size(pkt) buffer: nb_map(pkt) start: output_page];
-        if (txing == NO) {
-            txing = YES;
+        if (transmitActive == NO) {
+            transmitActive = YES;
             [self _NS8390TriggerSend: send_length startPage: output_page];
 
             //start transmit timeout ...
-            [self setRelativeTimeout:3000];
+            [self setRelativeTimeout:NE_TXTIMEOUT];
 
             if (output_page == tx_start_page) {
                 tx1	= -1;
@@ -923,17 +919,26 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
                 tx2	= -1;
                 lasttx	= -2;
             }
-        } else {
+        } else
             txqueue++;
-            tbusy = (tx1 && tx2 ? YES : NO);
-        }
 
+        tbusy = (tx1 && tx2 ? YES : NO);
+#else /* PINGPONG */
+        [self _blockOutput: pkt_len buffer: nb_map(pkt) start: tx_start_page];
+        transmitActive = YES;
+        [self _NS8390TriggerSend: send_length startPage: tx_start_page];
 
+        //start transmit timeout ...
+        [self setRelativeTimeout:NE_TXTIMEOUT];
+        tbusy = YES;
+        
+#endif
+
+ 
         /* Turn 8390 interrupts back on. */
-        [self enableInterrupt: irq];
+        //[self enableInterrupt: irq];
         irqlock	= NO;
-        tbusy	= YES;
-        NICSetIMR(base, 0x3f);	//All irqs!
+        //NICSetIMR(base, 0x3f);	//All irqs!
 
         /* free packet */
         nb_free(pkt);
@@ -959,7 +964,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 -(void) _NS8390TriggerSend:(unsigned int) len startPage:(int)start_page
 {
     RCNV	_r;
-
+    
     NICSetCR(base, 0x20);		//nodma, page0
 
     _r.data = NICGetCR(base);
@@ -968,12 +973,13 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
         return;
     }
 
-    NICSetTBCR(base, len);
     NICSetTPSR(base, start_page);
+    NICSetTBCR(base, len);
 
     NICSetCR(base, 0x26);	//no dma, trans, start
-
 }
+
+
 
 
 
@@ -982,8 +988,6 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 -(void) _get8390hdr:(struct e8390_pkt_hdr *) hdr ringPage:(int) ring_page
 {
     RCNV	_r;
-    unsigned	char	*_ptr;
-
 
     /* this shouldn't happen. If it does, it's the last thing you'll see */
     if (dmaing == YES) {
@@ -1002,13 +1006,8 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
     NICSetCR(base, 0x08 | 0x02);	//remote read, start
 
-
-    
-    *(long *)hdr = NICGetLongData(base);
-    _ptr	= (unsigned char *)hdr;
-    IOLog("HDR: cnt=%d; page=%d\n", sizeof(struct e8390_pkt_hdr), ring_page << 8);
-    IOLog("HDR: 0x%x,0x%x,0x%x,0x%x\n", _ptr[0], _ptr[1], _ptr[2], _ptr[3]);
-
+    //Get datas
+    NICGetShortDatas(base, (void *)hdr, 2);
 
     NICSetISR(base, 0x40);	/* Ack intr. */
 
@@ -1021,7 +1020,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 -(void) _blockInput:(int) count buffer:(char *) buf offset:(int) ring_offset
 {
     RCNV	_r;
-    int		li = count >> 2;
+    int		li;
 
     /* this shouldn't happen. If it does, it's the last thing you'll see */
     if (dmaing == YES) {
@@ -1040,21 +1039,16 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     NICSetCR(base, 0x08 | 0x02);	//remote read, start
 
 
+    li = count >> 1;
 
+    NICGetShortDatas(base, (void *)buf, li);
 
-    li = count >> 2;
-
-    while (li--) {
-        *((long *)buf)++ = NICGetLongData(base);
-    }
-    if (count & 3) {
-        if (count & 2)
-            *((short *)buf)++ = NICGetShortData(base);
-        if (count & 1)
-            *buf++ = NICGetCharData(base);
+    if (count & 1) {
+	buf+= count & 1;
+	*buf++ = NICGetCharData(base);
     }
 
-
+    //TODO long-mode ...
     NICSetISR(base, 0x40);	/* Ack intr. */
 
     
@@ -1091,11 +1085,11 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     NICSetCR(base, 0x22);	//no dma, start
 
     //NE_RW_BUGFIX Inclusion starts here ...
-/*
-    NICSetRBCR(base, 0x0042);
-    NICSetRSAR(base, 0x0042);
-    NICSetCR(base, 0x8 | 0x2);	//remote read, start
- */
+    //NICSetRBCR(base, 0x0042);
+    //NICSetRSAR(base, 0x0042);
+    //NICSetCR(base, 0x8 | 0x2);	//remote read, start
+    //NE_RW_BUGFIX ...
+    
     NICSetISR(base, 0x40);	//remote dma completed
 
     NICSetRBCR(base, count);		//Remote byte count reg
@@ -1104,35 +1098,24 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     NICSetCR(base, 0x12);	//remote write, start
 
 
+    li = count >> 1;
 
-    li = count >> 2;
-
-    while (li--) {
-        NICSetLongData(base, *((long *)buf)++);
-    }
-    if (count & 3) {
-        if (count & 2)
-            NICSetShortData(base, *((short *)buf)++);
-    }
-
-
+    NICSetShortDatas(base, (void *)buf, li);
+    
     IOGetTimestamp(&start_time);
     //rdc
     while (NICGetISR(base) & 0x40 == 0) {
         IOGetTimestamp(&current);
         if (current - start_time > NS_TIMEOUT) {
             IOLog("NE2K: Timeout waiting for Tx RDC\n");
-            [self _reset8390];
+            [self _NS8390Reset];
             [self _NS8390Init: YES];
 
             break;
         }
     }
-    
-
-
     NICSetISR(base, 0x40);	/* Ack intr. */
-    
+
     dmaing = NO;
 
 }
@@ -1147,7 +1130,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
  */
 
 
--(void) _reset8390
+-(void) _NS8390Reset
 {
     ns_time_t	start_time;
     ns_time_t	current;
@@ -1155,7 +1138,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 
     HARD_RESET;
 
-    txing = NO;
+    transmitActive = NO;
     dmaing = NO;
 
     IOGetTimestamp(&start_time);
@@ -1180,7 +1163,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
 -(void) _NS8390Init:(BOOL) startp
 {
     NICSetCR(base, 0x21);		//nodma, page0, stop
-    NICSetDCR(base, 0x9);		//word mode - preset word16!
+    NICSetDCR(base, 0x49);		//word mode - preset word16!
     /* Clear the remote byte count registers. */
     NICSetRBCR(base, 0);
     /* Set to monitor and loopback mode -- this is vital! */
@@ -1206,12 +1189,13 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     NICSetCR(base, 0x21);	//nodma, page0, stop
 
     tbusy = NO;
+    transmitActive	= NO;
+
     //interrupt = 0;
 
     tx1		= 0;
     tx2 	= 0;
     lasttx	= 0;	//post ins..
-    txing	= 0;
 
     if (startp == YES) {
         NICSetISR(base, 0xff);
@@ -1238,7 +1222,10 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
     
     RCNV		_r;
     
-    if (promMode == NO && multiMode == NO) {
+    //if (promMode == YES || multiMode == YES) {
+    //(promMode == NO && multiMode == NO)
+
+    if (promMode == NO && multiMode == NO) {    
         for (i=0; i<8; i++)
             mcfilter[i] = 0x00;
 
@@ -1254,7 +1241,7 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
                     /*
                      * The 8390 uses the 6 most significant bits of the
                      * CRC to index the multicast table.
-                     */
+                     */ 
                     mcfilter[crc>>29] |= (1<<((crc>>26)&7));
                 }
             }
@@ -1269,27 +1256,28 @@ static inline int compareAddr(enet_addr_t *a1, enet_addr_t *a2);
         NICSetRCR(base, 0x4);
 
     //cli
-    _r.data = 0;
-    _r.cr.psel = 1;
-    _r.cr.rd = 4;	//no dma
-    NICSetCR(base, 0x20 | 0x40);	//page1, no dma
+    NICSetCR(base, 0x20 | 0x40);//page1, no dma
 
     NICSetMAR(base, mcfilter);	//set filter
 
-    _r.cr.psel = 0;
-    NICSetCR(base, 0x20);
+    NICSetCR(base, 0x20);	//no dma, pae0
 
 
     _r.data = 0;
     _r.rcr.broad = 1;	//RxCONFIG, broadcast enabled
     
     if (promMode == YES) {
-        _r.rcr.prom = 1;
-        _r.rcr.group = 1;
+        //_r.rcr.prom = 1;
+        //_r.rcr.group = 1;
+	NICSetRCR(base, 0x4 | 0x8 | 0x10);
     } else if (multiMode == YES /* || mc_list */) {
-        _r.rcr.group = 1;
+        //_r.rcr.group = 1;
+        NICSetRCR(base, 0x4 | 0x8);
+    } else {
+        NICSetRCR(base, 0x4);
     }
-    NICSetRCR(base, _r.data);
+
+    NICSetCR(base, 0x22);	//no dma, page0, start
 }
 
 

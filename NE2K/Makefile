@@ -30,7 +30,8 @@ PROF_LIBS = $(LIBS)
 BUNDLE_EXTENSION = config
 
 
-FRAMEWORK_PATHS = -F$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks
+FRAMEWORK_PATHS = -F$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\
+                  -F/System/Library/PrivateFrameworks
 FRAMEWORKS = -framework appkit
 
 

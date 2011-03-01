@@ -3,7 +3,7 @@
     DYNAMIC_CODE_GEN = YES; 
     FILESTABLE = {
         FRAMEWORKS = (appkit.framework); 
-        FRAMEWORKSEARCH = ("$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks"); 
+        FRAMEWORKSEARCH = ("$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks", /System/Library/PrivateFrameworks); 
         OTHER_RESOURCES = (Default.table, Localizable.strings); 
         OTHER_SOURCES = (Makefile.preamble, Makefile, Makefile.postamble, m.template, h.template); 
         SUBPROJECTS = (NE2K.lksproj); 

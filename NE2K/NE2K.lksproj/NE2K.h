@@ -19,6 +19,7 @@ struct mar_entry {
 @interface NE2K:IOEthernet
 {
     IOEISAPortAddress	base;		/* port base 			     */
+    IORange		port;		/* port base and extent		     */
     int			irq;		/* interrupt			     */
     enet_addr_t		myAddress;	/* local copy of ethernet address    */
     IONetwork		*network;	/* handle to kernel network object   */
@@ -32,7 +33,7 @@ struct mar_entry {
 
     BOOL		tbusy;		/* ? */
     BOOL		word16;		/* 16bit mode */
-    BOOL		txing;		/* Transmit active */
+    BOOL		transmitActive;		/* Transmit active */
     BOOL		irqlock;	/* 8390's intrs disabled when YES */
     BOOL		dmaing;		/* Remote DMA active */
     unsigned char	tx_start_page;
@@ -83,7 +84,7 @@ struct mar_entry {
 -(void) _get8390hdr:(struct e8390_pkt_hdr *) hdr ringPage:(int) ring_page;
 -(void) _blockInput:(int) count buffer:(char *) buf offset:(int) ring_offset;
 -(void) _blockOutput:(int) count buffer:(char *) buf start:(int) start_page;
--(void) _reset8390;
+-(void) _NS8390Reset;
 -(void) _NS8390Init:(BOOL) startp;
 
 -(void) _setMulticastList;
