@@ -1,0 +1,3 @@
+NE2K ethernet driver for NeXTSTEP 3.3 operating system
+
+This driver was written to enable using cheap NE2000 compatible PCI cards in PC boxes running NeXTSTEP. NeXT no longer exists but the driver may be still useful if you want to run the system virtualized.
