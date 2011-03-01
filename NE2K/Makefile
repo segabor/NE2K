@@ -9,24 +9,40 @@
 
 NAME = NE2K
 
-PROJECTVERSION = 1.1
+PROJECTVERSION = 2.7
+PROJECT_TYPE = Driver
 LANGUAGE = English
 
 GLOBAL_RESOURCES = Default.table Localizable.strings
 
-TOOLS = NE2K_reloc.tproj
+TOOLS = NE2K.lksproj
 
-OTHERSRCS = Makefile.preamble Makefile Makefile.postamble
+OTHERSRCS = Makefile.preamble Makefile Makefile.postamble m.template\
+            h.template
 
-MAKEFILEDIR = /NextDeveloper/Makefiles/app
-MAKEFILE = bundle.make
-SOURCEMODE = 444
-
+MAKEFILEDIR = $(MAKEFILEPATH)/pb_makefiles
+CODE_GEN_STYLE = DYNAMIC
+MAKEFILE = driver.make
+NEXTSTEP_INSTALLDIR = $(NEXT_ROOT)/private/Drivers
+LIBS = 
+DEBUG_LIBS = $(LIBS)
+PROF_LIBS = $(LIBS)
 BUNDLE_EXTENSION = config
 
 
-PB_CFLAGS = -DKERNEL -O2 -s
+FRAMEWORK_PATHS = -F$(SYSTEM_LIBRARY_DIR)/PrivateFrameworks\
+                  -F/System/Library/PrivateFrameworks
+FRAMEWORKS = -framework appkit
 
+
+NEXTSTEP_OBJCPLUS_COMPILER = /usr/bin/cc
+WINDOWS_OBJCPLUS_COMPILER = $(DEVDIR)/gcc
+PDO_UNIX_OBJCPLUS_COMPILER = $(NEXTDEV_BIN)/gcc
+NEXTSTEP_JAVA_COMPILER = /usr/bin/javac
+WINDOWS_JAVA_COMPILER = $(JDKBINDIR)/javac.exe
+PDO_UNIX_JAVA_COMPILER = $(NEXTDEV_BIN)/javac
+
+include $(MAKEFILEDIR)/platform.make
 
 -include Makefile.preamble
 
